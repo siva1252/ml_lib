@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlverdict"
-version = "0.1.1"
-description = "Evidence-based model selection for tabular ML: diagnose, compare, explain, and package a deployable model."
+version = "0.1.2"
+description = "Give a CSV and a target column. MLVerdict picks the problem, metric, and model, then explains why."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

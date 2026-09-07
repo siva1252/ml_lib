@@ -1,6 +1,5 @@
-"""Minimal MLVerdict demo: build a small churn table, fit, print the verdict.
-
-Run from the repo root (after pip install mlverdict or pip install -e .):
+"""Optional demo if you have no CSV yet. Normal usage is: pip install mlverdict
+and fit() on YOUR file + YOUR target column.
 
     python examples/quickstart.py
 """
