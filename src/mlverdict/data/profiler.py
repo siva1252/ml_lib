@@ -137,23 +137,33 @@ def _target_profile(series: pd.Series, name: str) -> TargetProfile:
 
 def profile_dataset(
     frame: pd.DataFrame,
-    target: str,
+    target: str | None,
     config: VerdictConfig | None = None,
 ) -> DatasetProfile:
     config = config or VerdictConfig()
     columns = []
     for name in frame.columns:
-        if name == target:
+        if target and name == target:
             continue
         columns.append(_column_profile(frame[name], name, config))
     cols = tuple(columns)
+    if target and target in frame.columns:
+        target_prof = _target_profile(frame[target], target)
+    else:
+        target_prof = TargetProfile(
+            name="",
+            dtype="none",
+            n_unique=0,
+            unique_ratio=0.0,
+            n_missing=0,
+        )
     return DatasetProfile(
         schema_version=SCHEMA_VERSION,
         n_rows=int(len(frame)),
         n_columns=int(frame.shape[1]),
         n_duplicate_rows=int(frame.duplicated().sum()),
         columns=cols,
-        target=_target_profile(frame[target], target),
+        target=target_prof,
         numeric_columns=tuple(c.name for c in cols if c.role == ColumnRole.NUMERIC),
         categorical_columns=tuple(c.name for c in cols if c.role == ColumnRole.CATEGORICAL),
         datetime_columns=tuple(c.name for c in cols if c.role == ColumnRole.DATETIME),

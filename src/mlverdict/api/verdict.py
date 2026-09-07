@@ -9,7 +9,7 @@ import pandas as pd
 
 from mlverdict.api.run import Run
 from mlverdict.core.config import Constraints, VerdictConfig
-from mlverdict.core.enums import DecisionStatus, ProblemType, Severity
+from mlverdict.core.enums import DecisionStatus, ProblemType, Severity, UnsupervisedTask
 from mlverdict.core.reproducibility import seed_everything
 from mlverdict.core.types import (
     SCHEMA_VERSION,
@@ -36,6 +36,7 @@ from mlverdict.models.candidates import select_candidates
 from mlverdict.preprocessing.pipeline import build_pipeline
 from mlverdict.preprocessing.planner import plan_preprocessing
 from mlverdict.problem.detector import detect_problem
+from mlverdict.problem.intent import FitIntent, resolve_fit_intent
 from mlverdict.production.artifact import ModelArtifact
 from mlverdict.production.readiness import assess_readiness
 from mlverdict.quality.analyzer import analyze_quality
@@ -70,8 +71,9 @@ class Verdict:
     def fit(
         self,
         data: str | pd.DataFrame,
-        target: str,
+        target: str | None = None,
         *,
+        task: str | UnsupervisedTask | None = None,
         problem_type: str | ProblemType | None = None,
         group_col: str | None = None,
         time_col: str | None = None,
@@ -82,7 +84,27 @@ class Verdict:
         feature_columns: list[str] | None = None,
     ) -> Run:
         seed_everything(self.config.random_state)
+        intent = resolve_fit_intent(target, task)
         frame = load_dataset(data)
+        if intent.halt_status is not None:
+            return _halt_entry(intent)
+        if intent.unsupervised_task is not None:
+            from mlverdict.unsupervised.engine import fit_unsupervised
+
+            return fit_unsupervised(
+                frame=frame,
+                intent=intent,
+                config=self.config,
+                constraints=self.constraints,
+                enable_hpo=self.enable_hpo,
+                group_col=group_col,
+                time_col=time_col,
+                primary_metric=primary_metric,
+                validation_strategy=validation_strategy,
+                feature_columns=feature_columns,
+            )
+        assert intent.target is not None
+        target = intent.target
         require_target(frame, target)
         frame = frame.dropna(subset=[target]).reset_index(drop=True)
 
@@ -375,6 +397,32 @@ def _limitations(quality: QualityReport, leakage: LeakageReport, validation: Val
     if high_leak:
         items.append(f"{len(high_leak)} high-risk leakage signal(s) should be reviewed before deployment.")
     return tuple(items)
+
+
+def _halt_entry(intent: FitIntent) -> Run:
+    """Stop before supervised Phase 1. No experiments, no fabricated metrics, no artifact."""
+    assert intent.halt_status is not None
+    decision = ModelDecision(
+        status=intent.halt_status,
+        selected_model=None,
+        reasons=intent.notes,
+        tradeoffs=(),
+        rejected=(),
+        assumptions=(),
+        limitations=intent.notes,
+    )
+    return Run(
+        status=intent.halt_status,
+        decision=decision,
+        notes=intent.notes,
+        extras={
+            "learning_mode": intent.learning_mode,
+            "unsupervised_task": (
+                intent.unsupervised_task.value if intent.unsupervised_task else None
+            ),
+        },
+        report_text="MLVerdict " + intent.halt_status.value + "\n" + "\n".join(intent.notes),
+    )
 
 
 def _early(

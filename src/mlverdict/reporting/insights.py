@@ -39,6 +39,13 @@ METRIC_PLAIN: dict[str, str] = {
     "mae": "Average absolute error. Lower is better.",
     "r2": "Share of target variance explained. 1 is perfect; 0 is predicting the mean.",
     "mape": "Average percent error. Lower is better.",
+    "silhouette": "How well-separated the clusters are on unlabeled features. Higher is better; needs at least two clusters.",
+    "calinski_harabasz": "Between-cluster vs within-cluster dispersion. Higher is better.",
+    "davies_bouldin": "Average similarity of each cluster to its nearest cluster. Lower is better.",
+    "decision_std": "Spread of anomaly scores on unlabeled rows. Higher spread means the scorer is not collapsing to one value.",
+    "outlier_rate": "Share of rows flagged as outliers (predict = -1). This is not labeled precision.",
+    "explained_variance": "Share of feature variance kept by the projection. Higher is better.",
+    "reconstruction_rmse": "How far the projection is from reconstructing the preprocessed features. Lower is better.",
 }
 
 _ZERO = 1e-12
@@ -168,8 +175,15 @@ def next_steps(
     status: DecisionStatus,
     has_artifact: bool,
     save_hint: str = "model.joblib",
+    notes: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
+    blob = " ".join(notes).lower()
     if status == DecisionStatus.UNDECIDED:
+        if "no target" in blob or "unsupervised" in blob:
+            return (
+                "Pass target='<column>' for supervised Phase 1.",
+                "Or pass task='clustering', 'anomaly_detection', or 'dimensionality_reduction'.",
+            )
         return (
             "Pass problem_type='binary_classification', 'multiclass_classification', or 'regression'.",
             "Then run fit() again. There is nothing to save yet.",

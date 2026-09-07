@@ -1,1 +1,1 @@
-"""Problem detection."""
+"""Problem detection and fit-entry intent."""

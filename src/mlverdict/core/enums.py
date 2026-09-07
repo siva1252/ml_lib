@@ -9,6 +9,9 @@ class ProblemType(str, Enum):
     BINARY_CLASSIFICATION = "binary_classification"
     MULTICLASS_CLASSIFICATION = "multiclass_classification"
     REGRESSION = "regression"
+    CLUSTERING = "clustering"
+    ANOMALY_DETECTION = "anomaly_detection"
+    DIMENSIONALITY_REDUCTION = "dimensionality_reduction"
 
 
 class DecisionStatus(str, Enum):
@@ -47,6 +50,7 @@ class ModelFamily(str, Enum):
     LINEAR = "linear"
     TREE = "tree"
     BOOSTING = "boosting"
+    UNSUPERVISED = "unsupervised"
 
 
 class ExperimentStatus(str, Enum):
@@ -72,3 +76,11 @@ class DatasetScale(str, Enum):
     SMALL = "small"
     MEDIUM = "medium"
     LARGE = "large"
+
+
+class UnsupervisedTask(str, Enum):
+    """Explicit unsupervised objectives. Missing a target is not enough to pick one."""
+
+    CLUSTERING = "clustering"
+    ANOMALY_DETECTION = "anomaly_detection"
+    DIMENSIONALITY_REDUCTION = "dimensionality_reduction"

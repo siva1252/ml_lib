@@ -88,11 +88,14 @@ def render_console(run: "Run") -> str:
             )
     elif status == DecisionStatus.UNDECIDED:
         parts.append("")
-        parts.append(_wrap("No model yet. The problem type is unclear - pass problem_type and fit again."))
         if run.notes:
-            parts.append(_bullets(list(run.notes)))
-        elif decision and decision.reasons:
-            parts.append(_bullets(list(decision.reasons)))
+            parts.append(_wrap(run.notes[0]))
+            if len(run.notes) > 1:
+                parts.append(_bullets(list(run.notes[1:])))
+        else:
+            parts.append(_wrap("No model yet. The problem type is unclear - pass problem_type and fit again."))
+            if decision and decision.reasons:
+                parts.append(_bullets(list(decision.reasons)))
     else:
         parts.append("")
         parts.append(_wrap("Run is blocked. Nothing was packaged for deployment."))
@@ -108,7 +111,17 @@ def render_console(run: "Run") -> str:
             if problem and problem.problem_type
             else "undecided"
         )
-        parts.append(_wrap(f"Target     : {dna.target_name}  ({dna.target_kind}, {dna.target_cardinality} unique values)"))
+        if dna.target_name:
+            parts.append(
+                _wrap(
+                    f"Target     : {dna.target_name}  ({dna.target_kind}, {dna.target_cardinality} unique values)"
+                )
+            )
+        else:
+            task = run.extras.get("unsupervised_task")
+            objective = task.replace("_", " ") if isinstance(task, str) else "unsupervised"
+            parts.append(_wrap("Target     : (none)"))
+            parts.append(_wrap(f"Objective  : {objective}"))
         parts.append(_wrap(f"Problem    : {problem_name}"))
         parts.append(
             _wrap(
@@ -192,7 +205,11 @@ def render_console(run: "Run") -> str:
             parts.append("  Pipeline saves, reloads, and predicts. Ready to export.")
 
     parts.append(_section("What to do next"))
-    parts.append(_bullets(list(next_steps(status=status, has_artifact=run.artifact_obj is not None))))
+    parts.append(_bullets(list(next_steps(
+        status=status,
+        has_artifact=run.artifact_obj is not None,
+        notes=run.notes,
+    ))))
     parts.append("")
     parts.append(_rule())
     return windows_safe("\n".join(parts).rstrip() + "\n")

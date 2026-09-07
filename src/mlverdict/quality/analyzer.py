@@ -20,7 +20,7 @@ def analyze_quality(
     issues: list[QualityIssue] = []
     target = profile.target
 
-    if target.n_missing:
+    if target.name and target.n_missing:
         sev = Severity.BLOCKER if target.n_missing == profile.n_rows else Severity.HIGH_RISK
         issues.append(
             issue(
@@ -38,9 +38,9 @@ def analyze_quality(
             issue(
                 "too_few_rows",
                 Severity.BLOCKER,
-                "Dataset is too small for a supervised experiment.",
+                "Dataset is too small for a reliable experiment.",
                 f"n_rows={profile.n_rows}",
-                "Collect more labeled rows.",
+                "Collect more rows.",
             )
         )
 

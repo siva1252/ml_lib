@@ -30,7 +30,7 @@ class SplitBundle:
 
 def isolate_final_test(
     frame: pd.DataFrame,
-    target: str,
+    target: str | None,
     plan: ValidationPlan,
     random_state: int,
 ) -> SplitBundle:
@@ -53,17 +53,21 @@ def isolate_final_test(
                 test.index.to_numpy(),
             )
 
+    has_target = bool(target) and target in frame.columns
+    y_dummy = frame[target] if has_target else pd.Series(np.zeros(len(frame)), index=frame.index)
+
     stratify = None
-    y = frame[target]
-    if plan.stratify and y.nunique(dropna=True) > 1:
-        counts = y.value_counts(dropna=False)
-        if counts.min() >= 2:
-            stratify = y
+    if has_target:
+        y = frame[target]
+        if plan.stratify and y.nunique(dropna=True) > 1:
+            counts = y.value_counts(dropna=False)
+            if counts.min() >= 2:
+                stratify = y
 
     groups = frame[plan.group_column] if plan.group_column and plan.group_column in frame.columns else None
     if groups is not None and groups.nunique() >= 4:
         splitter = GroupShuffleSplit(n_splits=1, test_size=plan.test_size, random_state=random_state)
-        train_idx, test_idx = next(splitter.split(frame, y, groups))
+        train_idx, test_idx = next(splitter.split(frame, y_dummy, groups))
         return SplitBundle(
             frame.iloc[train_idx].reset_index(drop=True),
             frame.iloc[test_idx].reset_index(drop=True),

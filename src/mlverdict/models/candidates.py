@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from mlverdict.core.config import Constraints
-from mlverdict.core.enums import DatasetScale, ModelFamily
+from mlverdict.core.enums import DatasetScale, ModelFamily, ProblemType
 from mlverdict.core.types import CandidateModel, CandidateSet, DatasetDNA, ExclusionRecord, MetricPlan, ProblemDefinition
 from mlverdict.models.compatibility import compatible
 from mlverdict.models.registry import CATALOG
+from mlverdict.models.unsupervised import UNSUPERVISED_CATALOG
 
 
 def select_candidates(
@@ -22,7 +23,8 @@ def select_candidates(
     prefer_trees = bool(dna.high_cardinality_columns) or dna.categorical_fraction >= 0.4
     tight_latency = bool(constraints and constraints.max_latency_ms is not None and constraints.max_latency_ms < 40)
 
-    for entry in CATALOG:
+    catalog = CATALOG + UNSUPERVISED_CATALOG
+    for entry in catalog:
         ok, reason = compatible(entry, dna, problem, constraints)
         if not ok:
             excluded.append(ExclusionRecord(entry["name"], reason))
@@ -64,18 +66,34 @@ def select_candidates(
         )
 
     if not included:
-        # Last resort: always try the linear adapter if the problem is decided.
-        fallback_key = "ridge" if problem.is_regression else "logistic_regression"
-        fallback_name = "Ridge" if problem.is_regression else "Logistic Regression"
-        included.append(
-            CandidateModel(
-                name=fallback_name,
-                family=ModelFamily.LINEAR,
-                estimator_key=fallback_key,
-                why_included="fallback linear model; all other candidates were filtered",
-                explainable=True,
-                complexity="low",
+        if problem.is_unsupervised:
+            fallback = {
+                ProblemType.CLUSTERING: ("kmeans", "KMeans"),
+                ProblemType.ANOMALY_DETECTION: ("isolation_forest", "Isolation Forest"),
+                ProblemType.DIMENSIONALITY_REDUCTION: ("pca", "PCA"),
+            }[problem.problem_type]
+            included.append(
+                CandidateModel(
+                    name=fallback[1],
+                    family=ModelFamily.UNSUPERVISED,
+                    estimator_key=fallback[0],
+                    why_included="fallback unsupervised model; all other candidates were filtered",
+                    explainable=True,
+                    complexity="low",
+                )
             )
-        )
+        else:
+            fallback_key = "ridge" if problem.is_regression else "logistic_regression"
+            fallback_name = "Ridge" if problem.is_regression else "Logistic Regression"
+            included.append(
+                CandidateModel(
+                    name=fallback_name,
+                    family=ModelFamily.LINEAR,
+                    estimator_key=fallback_key,
+                    why_included="fallback linear model; all other candidates were filtered",
+                    explainable=True,
+                    complexity="low",
+                )
+            )
 
     return CandidateSet(included=tuple(included), excluded=tuple(excluded))

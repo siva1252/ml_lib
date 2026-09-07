@@ -5,7 +5,7 @@ from __future__ import annotations
 from mlverdict.core.enums import ProblemType
 from mlverdict.core.exceptions import ConfigurationError
 from mlverdict.core.types import DatasetDNA, MetricPlan, ProblemDefinition
-from mlverdict.metrics.registry import CLASSIFICATION, REGRESSION, get_metric
+from mlverdict.metrics.registry import CLASSIFICATION, REGRESSION, UNSUPERVISED, get_metric
 
 
 def select_metric_plan(
@@ -25,6 +25,34 @@ def select_metric_plan(
         f"imbalance_ratio={dna.imbalance_ratio}",
         f"target_kind={dna.target_kind}",
     ]
+
+    if problem.is_unsupervised:
+        defaults = {
+            ProblemType.CLUSTERING: "silhouette",
+            ProblemType.ANOMALY_DETECTION: "decision_std",
+            ProblemType.DIMENSIONALITY_REDUCTION: "explained_variance",
+        }
+        default_name = defaults[problem.problem_type]
+        if user_metric:
+            primary = get_metric(user_metric)
+            if primary.name not in UNSUPERVISED:
+                raise ConfigurationError(f"Metric '{user_metric}' is not an unsupervised metric.")
+            evidence.append(f"user metric={user_metric}")
+        else:
+            primary = UNSUPERVISED[default_name]
+            evidence.append(f"unsupervised default primary={default_name}")
+        if problem.problem_type == ProblemType.CLUSTERING:
+            secondary = (
+                UNSUPERVISED["calinski_harabasz"],
+                UNSUPERVISED["davies_bouldin"],
+            )
+        elif problem.problem_type == ProblemType.ANOMALY_DETECTION:
+            secondary = (UNSUPERVISED["outlier_rate"],)
+        else:
+            secondary = (UNSUPERVISED["reconstruction_rmse"],)
+        return MetricPlan(
+            primary=primary, secondary=secondary, evidence=tuple(evidence), user_override=user_override
+        )
 
     if problem.is_regression:
         primary = get_metric(user_metric) if user_metric else REGRESSION["rmse"]

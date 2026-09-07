@@ -32,6 +32,8 @@ def _missingness(profile: DatasetProfile) -> str:
 
 
 def _target_kind(profile: DatasetProfile) -> str:
+    if not profile.target.name:
+        return "none"
     dtype = profile.target.dtype
     if dtype.startswith("float") and profile.target.n_unique > 20:
         return "numeric"

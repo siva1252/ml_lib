@@ -14,7 +14,10 @@ def compatible(
     problem: ProblemDefinition,
     constraints: Constraints | None,
 ) -> tuple[bool, str]:
-    task = "regression" if problem.is_regression else "classification"
+    if problem.is_unsupervised:
+        task = problem.problem_type.value if problem.problem_type else "unsupervised"
+    else:
+        task = "regression" if problem.is_regression else "classification"
     if task not in entry["tasks"]:
         return False, f"not applicable to {task}"
     if not is_available(entry["key"]):

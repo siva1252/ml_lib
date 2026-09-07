@@ -4,11 +4,31 @@ from __future__ import annotations
 
 import pandas as pd
 
-from mlverdict.core.enums import Confidence, DecisionStatus, ProblemType
+from mlverdict.core.enums import Confidence, DecisionStatus, ProblemType, UnsupervisedTask
 from mlverdict.core.exceptions import ConfigurationError
 from mlverdict.core.types import DatasetProfile, ProblemDefinition
 
-_VALID_OVERRIDES = {item.value: item for item in ProblemType}
+_SUPERVISED_OVERRIDES = {
+    ProblemType.BINARY_CLASSIFICATION.value: ProblemType.BINARY_CLASSIFICATION,
+    ProblemType.MULTICLASS_CLASSIFICATION.value: ProblemType.MULTICLASS_CLASSIFICATION,
+    ProblemType.REGRESSION.value: ProblemType.REGRESSION,
+}
+_UNSUPERVISED_FROM_TASK = {
+    UnsupervisedTask.CLUSTERING: ProblemType.CLUSTERING,
+    UnsupervisedTask.ANOMALY_DETECTION: ProblemType.ANOMALY_DETECTION,
+    UnsupervisedTask.DIMENSIONALITY_REDUCTION: ProblemType.DIMENSIONALITY_REDUCTION,
+}
+
+
+def unsupervised_problem(task: UnsupervisedTask) -> ProblemDefinition:
+    return ProblemDefinition(
+        problem_type=_UNSUPERVISED_FROM_TASK[task],
+        confidence=Confidence.HIGH,
+        evidence=(f"User selected unsupervised task={task.value}",),
+        warnings=("No labeled target; scores are internal structure metrics, not labeled accuracy.",),
+        status=DecisionStatus.DECIDED,
+        user_override=True,
+    )
 
 
 def _looks_integer_like(series: pd.Series) -> bool:
@@ -28,10 +48,14 @@ def detect_problem(
 ) -> ProblemDefinition:
     if user_problem_type is not None:
         key = user_problem_type.value if isinstance(user_problem_type, ProblemType) else str(user_problem_type)
-        if key not in _VALID_OVERRIDES:
+        if key in {item.value for item in UnsupervisedTask}:
+            raise ConfigurationError(
+                "Unsupervised objectives use task= without a target, not problem_type with a labeled column."
+            )
+        if key not in _SUPERVISED_OVERRIDES:
             raise ConfigurationError(f"Unknown problem_type '{key}'.")
         return ProblemDefinition(
-            problem_type=_VALID_OVERRIDES[key],
+            problem_type=_SUPERVISED_OVERRIDES[key],
             confidence=Confidence.HIGH,
             evidence=(f"User override: problem_type={key}",),
             warnings=("Problem type was set by the user; automatic evidence was not used for the decision.",),

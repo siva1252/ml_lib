@@ -114,6 +114,7 @@ def render_report(record: ModelDecisionRecord) -> str:
     deploy = next_steps(
         status=d.status if isinstance(d.status, DecisionStatus) else DecisionStatus(d.status),
         has_artifact=record.production is not None and record.production.passed and d.status == DecisionStatus.DECIDED,
+        notes=d.reasons,
     )
 
     sections = [
@@ -126,7 +127,7 @@ def render_report(record: ModelDecisionRecord) -> str:
         _bullets(
             [
                 f"rows={dna.n_rows}, features={dna.n_features}, scale={dna.scale.value}",
-                f"target={dna.target_name} kind={dna.target_kind} cardinality={dna.target_cardinality}",
+                f"target={dna.target_name or '(none)'} kind={dna.target_kind} cardinality={dna.target_cardinality}",
                 f"imbalance={format_imbalance(dna.imbalance_ratio)} missingness={dna.missingness}",
                 f"iid={dna.iid_assumption.value} entity_hint={dna.entity_hint} time_hint={dna.time_hint}",
                 f"potential_ids={list(dna.potential_id_columns)}",

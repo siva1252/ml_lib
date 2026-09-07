@@ -121,6 +121,14 @@ class ProblemDefinition:
     def is_regression(self) -> bool:
         return self.problem_type == ProblemType.REGRESSION
 
+    @property
+    def is_unsupervised(self) -> bool:
+        return self.problem_type in {
+            ProblemType.CLUSTERING,
+            ProblemType.ANOMALY_DETECTION,
+            ProblemType.DIMENSIONALITY_REDUCTION,
+        }
+
 
 @dataclass(frozen=True)
 class QualityIssue:

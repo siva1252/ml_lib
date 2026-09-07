@@ -61,13 +61,14 @@ def detect_leakage(
     frame: pd.DataFrame,
     profile: DatasetProfile,
     dna: DatasetDNA,
-    target: str,
+    target: str | None = None,
     *,
     group_col: str | None = None,
 ) -> LeakageReport:
     signals: list[LeakageSignal] = []
-    y = frame[target]
-    target_l = target.lower()
+    has_target = bool(target) and target in frame.columns
+    y = frame[target] if has_target else None
+    target_l = target.lower() if has_target else ""
 
     for col in profile.columns:
         name = col.name
@@ -120,6 +121,8 @@ def detect_leakage(
             )
 
         series = frame[name]
+        if y is None:
+            continue
         try:
             if pd.api.types.is_numeric_dtype(series) and pd.api.types.is_numeric_dtype(y):
                 aligned = pd.concat([series, y], axis=1).dropna()

@@ -14,7 +14,13 @@ def test_profile_detects_structure(messy_frame):
     assert profile.target.n_unique == 2
 
 
-def test_dna_is_machine_readable(messy_frame):
+def test_profile_without_target_keeps_all_columns(messy_frame):
+    profile = profile_dataset(messy_frame, None)
+    assert profile.target.name == ""
+    assert "churn" in {c.name for c in profile.columns}
+    dna = build_dna(profile)
+    assert dna.target_kind == "none"
+    assert dna.target_name == ""
     profile = profile_dataset(messy_frame, "churn", VerdictConfig())
     dna = build_dna(profile, group_col=None)
     assert dna.target_name == "churn"

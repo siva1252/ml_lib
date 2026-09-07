@@ -34,6 +34,11 @@ def build_estimator(
     random_state: int,
     params: dict[str, Any] | None = None,
 ):
+    from mlverdict.models.unsupervised import UNSUPERVISED_TYPES, build_unsupervised_estimator
+
+    if problem_type in UNSUPERVISED_TYPES:
+        return build_unsupervised_estimator(estimator_key, problem_type, random_state, params)
+
     params = dict(params or {})
     cls = problem_type != ProblemType.REGRESSION
 

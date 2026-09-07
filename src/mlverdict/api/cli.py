@@ -21,7 +21,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     fit = sub.add_parser("fit", help="Train, compare models, print the verdict.")
     fit.add_argument("data", help="Path to a CSV file")
-    fit.add_argument("--target", required=True, help="Target column name")
+    fit.add_argument("--target", default=None, help="Target column for supervised Phase 1")
+    fit.add_argument(
+        "--task",
+        default=None,
+        help="Unsupervised objective: clustering | anomaly_detection | dimensionality_reduction",
+    )
     fit.add_argument("--save", default=None, help="Path to write the deployable artifact (joblib)")
     fit.add_argument("--no-hpo", action="store_true", help="Skip hyperparameter search")
     fit.add_argument("--fast", action="store_true", help="Smaller CV/HPO budget (demos and tests)")
@@ -69,6 +74,7 @@ def cmd_fit(args: argparse.Namespace) -> int:
     run = engine.fit(
         str(path),
         args.target,
+        task=args.task,
         problem_type=args.problem_type,
         primary_metric=args.primary_metric,
         group_col=args.group_col,
