@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlverdict"
-version = "0.2.0"
+version = "0.2.1"
 description = "Evidence-based decision engine for tabular ML: supervised classification/regression and unsupervised clustering, anomaly detection, and PCA."
 readme = "README.md"
 requires-python = ">=3.10"
