@@ -25,6 +25,7 @@ from mlverdict.core.types import (
     ValidationPlan,
 )
 from mlverdict.production.artifact import ModelArtifact
+from mlverdict.reporting.display import render_console, render_summary
 from mlverdict.reporting.report import render_report
 
 
@@ -49,6 +50,26 @@ class Run:
     report_text: str = ""
     notes: tuple[str, ...] = ()
     extras: dict[str, Any] = field(default_factory=dict)
+
+    def __str__(self) -> str:
+        return render_console(self)
+
+    def __repr__(self) -> str:
+        model = self.decision.selected_model if self.decision else None
+        metric = self.decision.primary_metric if self.decision else None
+        return (
+            f"Run(status={self.status.value}, model={model!r}, "
+            f"metric={metric!r})"
+        )
+
+    def display(self) -> str:
+        """Print the human-readable verdict and return the same text."""
+        text = str(self)
+        print(text)
+        return text
+
+    def summary(self) -> str:
+        return render_summary(self)
 
     def best(self) -> dict[str, Any] | None:
         if self.decision is None or self.decision.selected_model is None:

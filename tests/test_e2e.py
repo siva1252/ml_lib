@@ -19,6 +19,10 @@ def test_binary_fit_leaderboard_report_artifact(binary_frame, fast_config, tmp_p
     assert "Executive summary" in text
     assert "Dataset DNA" in text
     assert "Selected model" in text
+    readable = str(run)
+    assert "MLVerdict" in readable
+    assert "Leaderboard" in readable
+    assert "What to do next" in readable
     assert run.verdict() is not None
     assert run.final_test is not None
     assert run.profile is not None

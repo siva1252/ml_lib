@@ -12,3 +12,6 @@ htmlcov/
 venv/
 .env
 *.joblib
+mlverdict-0.1.0/
+imp.md
+examples/train_with_label.csv

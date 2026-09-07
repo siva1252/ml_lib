@@ -2,13 +2,37 @@
 
 from __future__ import annotations
 
+from mlverdict.core.enums import DecisionStatus
 from mlverdict.core.types import ModelDecisionRecord
+from mlverdict.reporting.insights import (
+    format_imbalance,
+    format_score,
+    interpret_final_test,
+    interpret_gap,
+    metric_help,
+    next_steps,
+    watchlist,
+    windows_safe,
+)
 
 
 def _bullets(items: tuple[str, ...] | list[str], empty: str = "- None.") -> str:
     if not items:
         return empty
     return "\n".join(f"- {item}" for item in items)
+
+
+def _metric_md(metrics: dict[str, float] | None, *, primary: str | None) -> list[str]:
+    if not metrics:
+        return ["No metrics recorded."]
+    names = list(metrics.keys())
+    if primary and primary in metrics:
+        names = [primary] + [n for n in names if n != primary]
+    lines: list[str] = []
+    for name in names:
+        tag = " **(primary)**" if primary and name == primary else ""
+        lines.append(f"**{name}**{tag}: {format_score(metrics[name])} - {metric_help(name)}")
+    return lines
 
 
 def render_report(record: ModelDecisionRecord) -> str:
@@ -25,13 +49,16 @@ def render_report(record: ModelDecisionRecord) -> str:
         exec_lines.append(
             f"Primary metric **{d.primary_metric}** validation score: **{d.selected_primary_score:.4f}**."
         )
+        exec_lines.append(metric_help(d.primary_metric))
     if record.final_test:
         exec_lines.append(
-            f"Untouched final-test {record.final_test.metrics}."
+            f"Held-out test **{d.primary_metric or 'primary'}**: "
+            f"**{format_score(record.final_test.primary_score)}** "
+            f"({record.final_test.n_rows} untouched rows)."
         )
     if record.production:
         exec_lines.append(
-            "Production readiness: **passed**." if record.production.passed else "Production readiness: **BLOCKED**."
+            "Production packaging: **passed**." if record.production.passed else "Production packaging: **BLOCKED**."
         )
 
     quality_lines = [
@@ -59,6 +86,36 @@ def render_report(record: ModelDecisionRecord) -> str:
     ]
     rejected = [f"{r.model_name}: {r.reason}" for r in d.rejected]
 
+    test_lines: list[str]
+    attention: list[str] = []
+    if record.final_test:
+        ft = record.final_test
+        test_lines = [
+            f"untouched rows: {ft.n_rows}",
+            f"primary test score: {format_score(ft.primary_score)}",
+            f"primary validation score: {format_score(ft.validation_primary_score)}",
+            f"gap (validation - test): {format_score(ft.gap)}",
+        ]
+        gap_note = interpret_gap(ft.gap, ft.n_rows)
+        if gap_note:
+            test_lines.append(gap_note)
+        test_lines.extend(_metric_md(ft.metrics, primary=d.primary_metric))
+        attention = list(
+            interpret_final_test(
+                ft.metrics,
+                is_classification=problem.is_classification,
+                n_rows=ft.n_rows,
+            )
+        )
+    else:
+        test_lines = ["Final test was not run."]
+
+    flags = watchlist(record.quality, record.leakage)
+    deploy = next_steps(
+        status=d.status if isinstance(d.status, DecisionStatus) else DecisionStatus(d.status),
+        has_artifact=record.production is not None and record.production.passed and d.status == DecisionStatus.DECIDED,
+    )
+
     sections = [
         "# MLVerdict Report",
         "",
@@ -70,7 +127,7 @@ def render_report(record: ModelDecisionRecord) -> str:
             [
                 f"rows={dna.n_rows}, features={dna.n_features}, scale={dna.scale.value}",
                 f"target={dna.target_name} kind={dna.target_kind} cardinality={dna.target_cardinality}",
-                f"imbalance_ratio={dna.imbalance_ratio} missingness={dna.missingness}",
+                f"imbalance={format_imbalance(dna.imbalance_ratio)} missingness={dna.missingness}",
                 f"iid={dna.iid_assumption.value} entity_hint={dna.entity_hint} time_hint={dna.time_hint}",
                 f"potential_ids={list(dna.potential_id_columns)}",
                 f"high_cardinality={list(dna.high_cardinality_columns)}",
@@ -109,6 +166,7 @@ def render_report(record: ModelDecisionRecord) -> str:
         _bullets(
             [
                 f"primary={record.metrics.primary.name} (user_override={record.metrics.user_override})",
+                metric_help(record.metrics.primary.name),
                 f"secondary={[m.name for m in record.metrics.secondary]}",
                 *record.metrics.evidence,
             ]
@@ -133,17 +191,13 @@ def render_report(record: ModelDecisionRecord) -> str:
         _bullets(d.tradeoffs),
         "",
         "## Final untouched test",
-        _bullets(
-            [
-                f"metrics={record.final_test.metrics}",
-                f"primary={record.final_test.primary_score:.4f}",
-                f"validation_primary={record.final_test.validation_primary_score}",
-                f"gap={record.final_test.gap}",
-                f"n_rows={record.final_test.n_rows}",
-            ]
-            if record.final_test
-            else ["Final test was not run."]
-        ),
+        _bullets(test_lines),
+        "",
+        "## Attention",
+        _bullets(attention, empty="- No threshold/majority-class traps flagged."),
+        "",
+        "## Watchlist (high-risk only)",
+        _bullets(list(flags), empty="- No high-risk quality or leakage flags."),
         "",
         "## Assumptions",
         _bullets(d.assumptions),
@@ -158,5 +212,8 @@ def render_report(record: ModelDecisionRecord) -> str:
             else ["Not evaluated."]
         ),
         "",
+        "## What to do next",
+        _bullets(list(deploy)),
+        "",
     ]
-    return "\n".join(sections)
+    return windows_safe("\n".join(sections))
