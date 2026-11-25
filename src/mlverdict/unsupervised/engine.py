@@ -25,6 +25,7 @@ from mlverdict.core.types import (
     FinalTestResult,
     ModelDecision,
     ProblemDefinition,
+    Rejection,
     ValidationPlan,
 )
 from mlverdict.data.dna import build_dna
@@ -33,7 +34,10 @@ from mlverdict.decision.record import build_decision_record
 from mlverdict.decision.selector import select_model
 from mlverdict.evaluation.evaluator import evaluate_experiments
 from mlverdict.experiments.scoring import extract_score
-from mlverdict.experiments.unsupervised import compute_unsupervised_metrics, run_unsupervised_experiments
+from mlverdict.experiments.unsupervised import (
+    compute_unsupervised_metrics,
+    run_unsupervised_experiments,
+)
 from mlverdict.metrics.intelligence import select_metric_plan
 from mlverdict.models.candidates import select_candidates
 from mlverdict.preprocessing.pipeline import build_pipeline
@@ -41,7 +45,7 @@ from mlverdict.preprocessing.planner import plan_preprocessing
 from mlverdict.problem.detector import unsupervised_problem
 from mlverdict.problem.intent import FitIntent
 from mlverdict.production.artifact import ModelArtifact
-from mlverdict.production.readiness import assess_readiness
+from mlverdict.production.readiness import assess_readiness, environment_versions
 from mlverdict.quality.analyzer import analyze_quality
 from mlverdict.quality.leakage import detect_leakage
 from mlverdict.reporting.report import render_report
@@ -109,7 +113,7 @@ def fit_unsupervised(
         user_strategy=validation_strategy,
     )
     metric_plan = select_metric_plan(dna, problem, user_metric=primary_metric)
-    candidates = select_candidates(dna, problem, metric_plan, constraints)
+    candidates = select_candidates(dna, problem, metric_plan, constraints, config)
 
     extra_drop = tuple(c for c in (group_col,) if c)
     feature_frame = _feature_frame(train, feature_columns, extra_drop)
@@ -132,6 +136,8 @@ def fit_unsupervised(
     assumptions = _assumptions(dna, validation, group_col, time_col, intent.unsupervised_task)
     limitations = _limitations(quality, leakage, validation)
     decision = select_model(evaluations, metric_plan, assumptions=assumptions, limitations=limitations)
+    if problem.problem_type == ProblemType.ANOMALY_DETECTION:
+        decision = _prefer_ensemble(decision, evaluations)
 
     final_test = None
     artifact = None
@@ -150,7 +156,14 @@ def fit_unsupervised(
         pipeline.fit(feature_frame)
         if len(test):
             X_test = _feature_frame(test, feature_columns, extra_drop)
-            test_metrics = compute_unsupervised_metrics(pipeline, X_test, problem)
+            test_metrics = compute_unsupervised_metrics(
+                pipeline,
+                X_test,
+                problem,
+                silhouette_sample_size=config.silhouette_sample_size,
+                random_state=config.random_state,
+            )
+
             primary = extract_score(test_metrics, metric_plan)
             raw_primary = test_metrics.get(metric_plan.primary.name, primary)
             gap = None
@@ -181,6 +194,8 @@ def fit_unsupervised(
                 "schema_version": SCHEMA_VERSION,
                 "learning_mode": "unsupervised",
                 "unsupervised_task": intent.unsupervised_task.value,
+                "settings": dict(winner_exp.configuration),
+                "environment": environment_versions(),
             },
             metrics=final_test.metrics if final_test else winner_exp.metrics,
             decision_record={},
@@ -239,6 +254,44 @@ def fit_unsupervised(
         artifact_obj=artifact if status == DecisionStatus.DECIDED else artifact,
         report_text=report_text,
         extras=extras,
+    )
+
+
+ENSEMBLE_NAME = "Detector Ensemble"
+
+
+def _prefer_ensemble(decision: ModelDecision, evaluations) -> ModelDecision:
+    """Without labels no internal score reliably ranks outlier detectors, so the robust
+    max-vote ensemble is the default whenever it passes the user's hard constraints."""
+    if decision.status != DecisionStatus.DECIDED or decision.selected_model == ENSEMBLE_NAME:
+        return decision
+    ens = next((e for e in evaluations if e.model_name == ENSEMBLE_NAME and e.passes_constraints), None)
+    if ens is None:
+        return decision
+    rejected = tuple(r for r in decision.rejected if r.model_name != ENSEMBLE_NAME) + (
+        Rejection(
+            decision.selected_model,
+            "single detector; the ensemble is preferred because unlabeled scores cannot reliably rank detectors",
+        ),
+    )
+    reasons = (
+        f"Selected {ENSEMBLE_NAME} (Isolation Forest + One-Class SVM + LOF, max-vote).",
+        "No labels: internal scores cannot reliably tell which single detector is right, and each one "
+        "fails on some outlier shape. The ensemble flags a row when any detector finds it extreme.",
+        f"Primary metric '{decision.primary_metric}' validation score={ens.primary_score:.4f} "
+        "(reported for transparency, not used to pick between detectors).",
+        "To force one detector, use constraints (e.g. require_explainable=True keeps Isolation Forest).",
+    )
+    return ModelDecision(
+        status=DecisionStatus.DECIDED,
+        selected_model=ENSEMBLE_NAME,
+        reasons=reasons,
+        tradeoffs=decision.tradeoffs,
+        rejected=rejected,
+        assumptions=decision.assumptions,
+        limitations=decision.limitations,
+        primary_metric=decision.primary_metric,
+        selected_primary_score=ens.primary_score,
     )
 
 

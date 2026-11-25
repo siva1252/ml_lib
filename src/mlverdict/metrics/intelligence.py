@@ -29,7 +29,7 @@ def select_metric_plan(
     if problem.is_unsupervised:
         defaults = {
             ProblemType.CLUSTERING: "silhouette",
-            ProblemType.ANOMALY_DETECTION: "decision_std",
+            ProblemType.ANOMALY_DETECTION: "anomaly_separation",
             ProblemType.DIMENSIONALITY_REDUCTION: "explained_variance",
         }
         default_name = defaults[problem.problem_type]
@@ -47,7 +47,7 @@ def select_metric_plan(
                 UNSUPERVISED["davies_bouldin"],
             )
         elif problem.problem_type == ProblemType.ANOMALY_DETECTION:
-            secondary = (UNSUPERVISED["outlier_rate"],)
+            secondary = (UNSUPERVISED["outlier_rate"], UNSUPERVISED["decision_std"])
         else:
             secondary = (UNSUPERVISED["reconstruction_rmse"],)
         return MetricPlan(

@@ -28,6 +28,7 @@ UNSUPERVISED: dict[str, MetricSpec] = {
     "silhouette": MetricSpec("silhouette", True, False, "silhouette"),
     "calinski_harabasz": MetricSpec("calinski_harabasz", True, False, "calinski_harabasz"),
     "davies_bouldin": MetricSpec("davies_bouldin", False, False, "davies_bouldin"),
+    "anomaly_separation": MetricSpec("anomaly_separation", True, False, "anomaly_separation"),
     "decision_std": MetricSpec("decision_std", True, False, "decision_std"),
     "outlier_rate": MetricSpec("outlier_rate", True, False, "outlier_rate"),
     "explained_variance": MetricSpec("explained_variance", True, False, "explained_variance"),

@@ -102,7 +102,7 @@ def test_anomaly_detection_runs(fast_config):
     assert run.extras.get("unsupervised_task") == "anomaly_detection"
     assert run.best() is not None
     assert run.artifact() is not None
-    assert "decision_std" in (run.best() or {}).get("primary_metric", "decision_std")
+    assert (run.best() or {}).get("primary_metric") == "anomaly_separation"
     labels = run.artifact().predict(_anomaly_frame().head(10))
     assert len(labels) == 10
 
