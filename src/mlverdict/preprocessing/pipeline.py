@@ -9,7 +9,8 @@ import pandas as pd
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, TransformerMixin, clone
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, OrdinalEncoder, StandardScaler
+from sklearn.utils.metaestimators import available_if
 
 from mlverdict.core.enums import ProblemType
 from mlverdict.core.types import CandidateModel, PreprocessPlan
@@ -20,6 +21,58 @@ def _as_frame(X: Any) -> pd.DataFrame:
     if isinstance(X, pd.DataFrame):
         return X.copy()
     return pd.DataFrame(X)
+
+
+def _as_categories(frame: pd.DataFrame) -> pd.DataFrame:
+    """Object frame where every non-missing value is a string.
+
+    Columns holding a mix of types (1, "a", 2.5, True) would otherwise make sklearn encoders fail.
+    """
+    cats = frame.astype("object")
+    return cats.where(cats.isna(), cats.astype(str))
+
+
+def _to_numeric(frame: pd.DataFrame) -> pd.DataFrame:
+    """Coerce to float and treat +/-inf as missing so the imputer handles it."""
+    num = frame.apply(pd.to_numeric, errors="coerce").astype(float)
+    return num.replace([np.inf, -np.inf], np.nan)
+
+
+class EncodedClassifier(ClassifierMixin, BaseEstimator):
+    """Train any classifier on integer codes 0..k-1 and return the original labels.
+
+    XGBoost and some other libraries only accept 0..k-1 targets; text labels like "yes"/"no"
+    would fail. ``classes_`` keeps the original labels in the same order as ``predict_proba`` columns.
+    """
+
+    def __init__(self, estimator=None) -> None:
+        self.estimator = estimator
+
+    def fit(self, X, y):
+        y_arr = np.asarray(y)
+        self.encoder_ = LabelEncoder().fit(y_arr)
+        self.classes_ = self.encoder_.classes_
+        self.estimator_ = clone(self.estimator).fit(X, self.encoder_.transform(y_arr))
+        return self
+
+    def predict(self, X):
+        codes = np.asarray(self.estimator_.predict(X)).ravel().astype(int)
+        return self.encoder_.inverse_transform(codes)
+
+    def _has_proba(self) -> bool:
+        return hasattr(self.estimator, "predict_proba")
+
+    @available_if(_has_proba)
+    def predict_proba(self, X):
+        return np.asarray(self.estimator_.predict_proba(X))
+
+    @property
+    def feature_importances_(self):
+        return self.estimator_.feature_importances_
+
+    @property
+    def coef_(self):
+        return self.estimator_.coef_
 
 
 class TabularPreprocessor(BaseEstimator, TransformerMixin):
@@ -63,14 +116,14 @@ class TabularPreprocessor(BaseEstimator, TransformerMixin):
         self.numeric_in_ = [c for c in self._numeric_names() if c in frame.columns]
         self.categorical_in_ = [c for c in self.categorical_columns if c in frame.columns]
         if self.numeric_in_:
-            num = frame[self.numeric_in_].apply(pd.to_numeric, errors="coerce")
+            num = _to_numeric(frame[self.numeric_in_])
             self.num_imputer_ = SimpleImputer(strategy="median").fit(num)
             self.scaler_ = StandardScaler().fit(self.num_imputer_.transform(num)) if self.numeric_scaling else None
         else:
             self.num_imputer_ = None
             self.scaler_ = None
         if self.categorical_in_:
-            cats = frame[self.categorical_in_].astype("object")
+            cats = _as_categories(frame[self.categorical_in_])
             self.cat_imputer_ = SimpleImputer(strategy="most_frequent").fit(cats)
             imputed = self.cat_imputer_.transform(cats)
             if self.categorical_encoding == "onehot_or_ordinal":
@@ -106,14 +159,13 @@ class TabularPreprocessor(BaseEstimator, TransformerMixin):
         frame = self._expand(_as_frame(X))
         parts: list[np.ndarray] = []
         if self.numeric_in_:
-            num = frame.reindex(columns=self.numeric_in_)
-            num = num.apply(pd.to_numeric, errors="coerce")
+            num = _to_numeric(frame.reindex(columns=self.numeric_in_))
             arr = self.num_imputer_.transform(num)
             if self.scaler_ is not None:
                 arr = self.scaler_.transform(arr)
             parts.append(arr)
         if self.categorical_in_:
-            cats = frame.reindex(columns=self.categorical_in_).astype("object")
+            cats = _as_categories(frame.reindex(columns=self.categorical_in_))
             imputed = self.cat_imputer_.transform(cats)
             if self.onehot_ is not None and self.onehot_idx_:
                 parts.append(self.onehot_.transform(imputed[:, self.onehot_idx_]))
@@ -139,6 +191,8 @@ def build_pipeline(
         categorical_encoding=plan.categorical_encoding,
     )
     model = build_estimator(candidate.estimator_key, problem_type, random_state, params)
+    if problem_type in {ProblemType.BINARY_CLASSIFICATION, ProblemType.MULTICLASS_CLASSIFICATION}:
+        model = EncodedClassifier(model)
     return Pipeline([("preprocess", preprocess), ("model", model)])
 
 

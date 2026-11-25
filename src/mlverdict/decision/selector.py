@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from mlverdict.core.enums import DecisionStatus
-from mlverdict.core.types import EvaluationResult, ModelDecision, MetricPlan, Rejection
+from mlverdict.core.types import EvaluationResult, MetricPlan, ModelDecision, Rejection
 from mlverdict.decision.tradeoffs import describe_tradeoffs
 
 

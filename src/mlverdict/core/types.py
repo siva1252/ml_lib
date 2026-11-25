@@ -109,6 +109,9 @@ class ProblemDefinition:
     warnings: tuple[str, ...]
     status: DecisionStatus
     user_override: bool = False
+    # Binary only: the class treated as "positive" by precision/recall/F1/PR-AUC.
+    # Defaults to the minority class so imbalanced metrics measure the rare outcome.
+    positive_label: Any = None
 
     @property
     def is_classification(self) -> bool:

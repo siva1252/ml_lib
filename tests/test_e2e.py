@@ -1,7 +1,5 @@
 from pathlib import Path
 
-import pandas as pd
-
 from mlverdict import DecisionStatus, ModelArtifact, Verdict
 from mlverdict.production.service import predict_records
 

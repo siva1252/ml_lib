@@ -85,13 +85,14 @@ def run_cross_validation(
             model.fit(X_tr, y_tr)
             pred_va = model.predict(X_va)
             proba_va = _predict_proba(model, X_va)
-            metrics_va = compute_metrics(y_va, pred_va, proba_va, problem, metric_plan)
+            classes = getattr(model, "classes_", None)
+            metrics_va = compute_metrics(y_va, pred_va, proba_va, problem, metric_plan, classes)
             fold_scores.append(extract_score(metrics_va, metric_plan))
             for key, value in metrics_va.items():
                 metric_accum.setdefault(key, []).append(value)
             pred_tr = model.predict(X_tr)
             proba_tr = _predict_proba(model, X_tr)
-            metrics_tr = compute_metrics(y_tr, pred_tr, proba_tr, problem, metric_plan)
+            metrics_tr = compute_metrics(y_tr, pred_tr, proba_tr, problem, metric_plan, classes)
             train_scores.append(extract_score(metrics_tr, metric_plan))
             last_model = model
             last_val_x = X_va
@@ -103,6 +104,10 @@ def run_cross_validation(
     train_time = time.perf_counter() - t0
     scores = np.asarray(fold_scores, dtype=float)
     scores = scores[np.isfinite(scores)]
+    if status == ExperimentStatus.SUCCESS and len(scores) == 0:
+        # A model with no finite primary score has no evidence; it must not be ranked.
+        status = ExperimentStatus.FAILED
+        error = f"No finite '{metric_plan.primary.name}' scores on validation folds."
     mean = float(scores.mean()) if len(scores) else float("nan")
     std = float(scores.std(ddof=0)) if len(scores) else float("nan")
     mn = float(scores.min()) if len(scores) else float("nan")

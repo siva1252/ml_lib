@@ -35,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     fit.add_argument("--primary-metric", default=None)
     fit.add_argument("--group-col", default=None)
     fit.add_argument("--time-col", default=None)
+    fit.add_argument("--positive-label", default=None, help="Binary only: class treated as positive")
+    fit.add_argument("--contamination", type=float, default=None, help="Anomaly detection: expected outlier share")
     fit.add_argument("--report", action="store_true", help="Also print the full markdown report")
     fit.set_defaults(func=cmd_fit)
 
@@ -48,6 +50,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _config(args: argparse.Namespace) -> VerdictConfig:
+    extra = {}
+    if getattr(args, "contamination", None) is not None:
+        extra["anomaly_contamination"] = args.contamination
     if args.fast:
         return VerdictConfig(
             random_state=args.seed,
@@ -57,8 +62,25 @@ def _config(args: argparse.Namespace) -> VerdictConfig:
             max_hpo_time_seconds=20,
             n_hpo_candidates=1,
             latency_probe_rows=16,
+            **extra,
         )
-    return VerdictConfig(random_state=args.seed)
+    return VerdictConfig(random_state=args.seed, **extra)
+
+
+def _positive_label(value: str | None, data: str, target: str | None):
+    """CLI values are strings; match the target's dtype (e.g. "1" -> 1) when it is numeric."""
+    if value is None or target is None:
+        return value
+    import pandas as pd
+
+    try:
+        sample = pd.read_csv(data, usecols=[target], nrows=10_000)[target].dropna()
+    except Exception:
+        return value
+    for candidate in sample.unique().tolist():
+        if str(candidate) == value:
+            return candidate
+    return value
 
 
 def cmd_fit(args: argparse.Namespace) -> int:
@@ -79,6 +101,7 @@ def cmd_fit(args: argparse.Namespace) -> int:
         primary_metric=args.primary_metric,
         group_col=args.group_col,
         time_col=args.time_col,
+        positive_label=_positive_label(args.positive_label, str(path), args.target),
     )
     print(run)
     if args.report:

@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
-from mlverdict.core.config import Constraints
+from mlverdict.core.config import Constraints, VerdictConfig
 from mlverdict.core.enums import DatasetScale, ModelFamily, ProblemType
-from mlverdict.core.types import CandidateModel, CandidateSet, DatasetDNA, ExclusionRecord, MetricPlan, ProblemDefinition
+from mlverdict.core.types import (
+    CandidateModel,
+    CandidateSet,
+    DatasetDNA,
+    ExclusionRecord,
+    MetricPlan,
+    ProblemDefinition,
+)
 from mlverdict.models.compatibility import compatible
 from mlverdict.models.registry import CATALOG
 from mlverdict.models.unsupervised import UNSUPERVISED_CATALOG
@@ -15,6 +22,7 @@ def select_candidates(
     problem: ProblemDefinition,
     metric_plan: MetricPlan,
     constraints: Constraints | None = None,
+    config: VerdictConfig | None = None,
 ) -> CandidateSet:
     included: list[CandidateModel] = []
     excluded: list[ExclusionRecord] = []
@@ -25,7 +33,7 @@ def select_candidates(
 
     catalog = CATALOG + UNSUPERVISED_CATALOG
     for entry in catalog:
-        ok, reason = compatible(entry, dna, problem, constraints)
+        ok, reason = compatible(entry, dna, problem, constraints, config)
         if not ok:
             excluded.append(ExclusionRecord(entry["name"], reason))
             continue

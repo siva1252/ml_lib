@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Any
+
+import numpy as np
 import pandas as pd
 
 from mlverdict.core.enums import Confidence, DecisionStatus, ProblemType, UnsupervisedTask
@@ -40,7 +44,57 @@ def _looks_integer_like(series: pd.Series) -> bool:
     return bool(((clean * 10).round() / 10 == clean.round()).mean() > 0.98)
 
 
+def _python_scalar(value: Any) -> Any:
+    return value.item() if isinstance(value, np.generic) else value
+
+
+def minority_label(target: pd.Series) -> Any:
+    """The rarer class; ties go to the larger sorted label (so 0/1 targets keep 1 as positive)."""
+    counts = target.dropna().value_counts()
+    if counts.empty:
+        return None
+    labels = sorted(counts.index.tolist(), key=lambda v: (str(type(v)), v))
+    rarest = min(counts.loc[lbl] for lbl in labels)
+    return _python_scalar([lbl for lbl in labels if counts.loc[lbl] == rarest][-1])
+
+
+def _resolve_positive(target: pd.Series, user_positive: Any) -> tuple[Any, str]:
+    if user_positive is not None:
+        present = set(target.dropna().unique().tolist())
+        if user_positive not in present:
+            raise ConfigurationError(
+                f"positive_label={user_positive!r} is not a value of the target. Present: {sorted(map(str, present))}"
+            )
+        return _python_scalar(user_positive), f"positive_label={user_positive!r} (user)"
+    label = minority_label(target)
+    return label, f"positive_label={label!r} (minority class)"
+
+
+def _is_class_code(target: pd.Series, n_unique: int) -> bool:
+    """0..k-1 integer codes (the usual encoding of class labels), not a float rating scale."""
+    if not pd.api.types.is_integer_dtype(target):
+        return False
+    values = sorted(int(v) for v in target.dropna().unique())
+    return values == list(range(n_unique))
+
+
 def detect_problem(
+    profile: DatasetProfile,
+    target: pd.Series,
+    *,
+    user_problem_type: str | ProblemType | None = None,
+    positive_label: Any = None,
+) -> ProblemDefinition:
+    problem = _detect(profile, target, user_problem_type=user_problem_type)
+    if problem.problem_type == ProblemType.BINARY_CLASSIFICATION:
+        label, note = _resolve_positive(target, positive_label)
+        return replace(problem, positive_label=label, evidence=problem.evidence + (note,))
+    if positive_label is not None and problem.problem_type is not None:
+        raise ConfigurationError("positive_label only applies to binary classification.")
+    return problem
+
+
+def _detect(
     profile: DatasetProfile,
     target: pd.Series,
     *,
@@ -95,7 +149,19 @@ def detect_problem(
         )
 
     integer_like = _looks_integer_like(target)
-    # Ambiguous: few integer codes could be multiclass or ordinal regression.
+    # Integer dtype with values exactly 0..k-1 is the standard class-code encoding (iris, wine, digits).
+    if numeric and 3 <= n_unique <= 10 and _is_class_code(target, n_unique):
+        return ProblemDefinition(
+            problem_type=ProblemType.MULTICLASS_CLASSIFICATION,
+            confidence=Confidence.MEDIUM,
+            evidence=tuple(evidence + [f"integer class codes 0..{n_unique - 1}"]),
+            warnings=(
+                "Target looks like class codes 0..k-1, so it is treated as multiclass. "
+                "If it is a quantity or an ordered score, pass problem_type='regression'.",
+            ),
+            status=DecisionStatus.DECIDED,
+        )
+    # Ambiguous: few integer-like values (e.g. a 1-5 rating) could be multiclass or ordinal regression.
     if numeric and integer_like and 3 <= n_unique <= 10:
         return ProblemDefinition(
             problem_type=None,

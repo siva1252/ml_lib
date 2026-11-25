@@ -29,6 +29,15 @@ class VerdictConfig:
     latency_probe_rows: int = 64
     min_rows_for_cv: int = 40
     min_rows_for_holdout: int = 20
+    # Scale guards for models whose cost grows quickly with rows.
+    max_rows_for_svm: int = 10_000
+    max_rows_for_knn: int = 50_000
+    # Unsupervised policy.
+    anomaly_contamination: float = 0.05  # expected share of outliers; the same for every detector
+    pca_variance_threshold: float = 0.95  # keep the fewest components that explain this much variance
+    silhouette_sample_size: int = 5_000  # silhouette is O(n^2); score on a fixed-seed sample
+    max_clusters: int = 10
+    cluster_scan_rows: int = 10_000  # pick k on a fixed-seed sample of this size, then refit on all rows
     # Weights for soft ranking after hard constraints. Do not collapse quality to one ad-hoc number in callers.
     weight_performance: float = 0.45
     weight_stability: float = 0.25
@@ -42,6 +51,12 @@ class VerdictConfig:
             raise ValueError("test_size must be between 0.05 and 0.4")
         if self.cv_splits < 2:
             raise ValueError("cv_splits must be >= 2")
+        if not 0.0 < self.anomaly_contamination < 0.5:
+            raise ValueError("anomaly_contamination must be between 0 and 0.5")
+        if not 0.0 < self.pca_variance_threshold <= 1.0:
+            raise ValueError("pca_variance_threshold must be in (0, 1]")
+        if self.max_clusters < 2:
+            raise ValueError("max_clusters must be >= 2")
         weights = (
             self.weight_performance
             + self.weight_stability

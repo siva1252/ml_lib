@@ -15,7 +15,7 @@ from mlverdict.core.types import (
     ValidationPlan,
 )
 from mlverdict.experiments.baseline import run_baselines
-from mlverdict.experiments.hpo import optimize_candidate, select_promising
+from mlverdict.experiments.hpo import _space, has_search_space, optimize_candidate, select_promising
 
 
 def run_experiments(
@@ -50,7 +50,8 @@ def run_experiments(
         return baselines
 
     by_name = {c.name: c for c in candidates}
-    promising = select_promising(baselines, config.n_hpo_candidates)
+    tunable = tuple(b for b in baselines if has_search_space(_space, b.estimator_key))
+    promising = select_promising(tunable, config.n_hpo_candidates)
     optimized: list[ExperimentResult] = []
     optimized_names: set[str] = set()
     for base in promising:

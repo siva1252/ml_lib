@@ -1,6 +1,5 @@
 from mlverdict.core.config import VerdictConfig
 from mlverdict.core.enums import ProblemType, ValidationStrategy
-from mlverdict.core.types import ProblemDefinition
 from mlverdict.data.dna import build_dna
 from mlverdict.data.profiler import profile_dataset
 from mlverdict.metrics.intelligence import select_metric_plan

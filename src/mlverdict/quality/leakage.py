@@ -10,7 +10,6 @@ import pandas as pd
 from mlverdict.core.enums import Severity
 from mlverdict.core.types import DatasetDNA, DatasetProfile, LeakageReport, LeakageSignal
 
-
 _POST_OUTCOME = re.compile(
     r"(after_|post_|future_|days_since_|hours_since_|weeks_since_|_after$|_post$)",
     re.I,
@@ -39,6 +38,14 @@ def _signal(
     )
 
 
+def _mentions(name: str, target: str) -> bool:
+    """Whole-token match: 'days_since_churn' mentions 'churn'; 'days' does not mention 'y'."""
+    if not target:
+        return False
+    tokens = re.split(r"[^a-z0-9]+", name.lower())
+    return target.lower() in tokens or (len(target) >= 4 and target.lower() in name.lower())
+
+
 def _cramers_v(a: pd.Series, b: pd.Series) -> float:
     table = pd.crosstab(a, b)
     if table.size == 0 or table.shape[0] < 2 or table.shape[1] < 2:
@@ -55,6 +62,32 @@ def _cramers_v(a: pd.Series, b: pd.Series) -> float:
     if denom <= 0:
         return 0.0
     return float(np.sqrt(chi2 / denom))
+
+
+def _correlation_ratio(values: pd.Series, groups: pd.Series) -> float:
+    """Eta: share of a numeric column's spread explained by a categorical column (0..1)."""
+    frame = pd.concat([pd.to_numeric(values, errors="coerce"), groups.astype(str)], axis=1).dropna()
+    if len(frame) < 20:
+        return 0.0
+    v = frame.iloc[:, 0].to_numpy(dtype=float)
+    total = float(((v - v.mean()) ** 2).sum())
+    if total <= 0:
+        return 0.0
+    grouped = frame.groupby(frame.columns[1])[frame.columns[0]]
+    between = float((grouped.count() * (grouped.mean() - v.mean()) ** 2).sum())
+    return float(np.sqrt(max(0.0, min(1.0, between / total))))
+
+
+def _binary_separation(values: pd.Series, target: pd.Series) -> float:
+    """Single-feature ROC-AUC folded to 0.5..1. 1.0 means the column alone splits the classes."""
+    from sklearn.metrics import roc_auc_score
+
+    frame = pd.concat([pd.to_numeric(values, errors="coerce"), target], axis=1).dropna()
+    if len(frame) < 20 or frame.iloc[:, 1].nunique() != 2:
+        return 0.5
+    positive = sorted(frame.iloc[:, 1].unique().tolist(), key=str)[-1]
+    auc = float(roc_auc_score(frame.iloc[:, 1] == positive, frame.iloc[:, 0]))
+    return max(auc, 1.0 - auc)
 
 
 def detect_leakage(
@@ -74,18 +107,20 @@ def detect_leakage(
         name = col.name
         lowered = name.lower()
 
-        if _POST_OUTCOME.search(lowered) or f"since_{target_l}" in lowered:
+        mentions_target = _mentions(name, target_l)
+        if _POST_OUTCOME.search(lowered) or (mentions_target and "since" in lowered):
+            # A name like days_since_last_login is a normal feature; days_since_churn is not.
             signals.append(
                 _signal(
                     "post_outcome_or_future",
-                    Severity.HIGH_RISK,
+                    Severity.HIGH_RISK if mentions_target else Severity.WARNING,
                     f"'{name}' looks like future or post-outcome information.",
                     f"name_pattern matched on '{name}'",
                     "Confirm the timestamp relative to the label. Exclude if it is known after the outcome.",
                     name,
                 )
             )
-        if target_l and target_l in lowered and name != target:
+        if mentions_target and name != target:
             signals.append(
                 _signal(
                     "target_derived_name",
@@ -124,7 +159,10 @@ def detect_leakage(
         if y is None:
             continue
         try:
-            if pd.api.types.is_numeric_dtype(series) and pd.api.types.is_numeric_dtype(y):
+            feature_numeric = pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series)
+            target_numeric = pd.api.types.is_numeric_dtype(y) and not pd.api.types.is_bool_dtype(y)
+            target_low_card = y.nunique(dropna=True) <= 40
+            if feature_numeric and target_numeric and not (target_low_card and y.nunique(dropna=True) == 2):
                 aligned = pd.concat([series, y], axis=1).dropna()
                 if len(aligned) >= 20:
                     corr = float(aligned.iloc[:, 0].corr(aligned.iloc[:, 1]))
@@ -139,7 +177,46 @@ def detect_leakage(
                                 name,
                             )
                         )
-            elif series.nunique(dropna=True) <= 40 and y.nunique(dropna=True) <= 40:
+            elif feature_numeric and target_low_card and y.nunique(dropna=True) == 2:
+                auc = _binary_separation(series, y)
+                if auc >= 0.999:
+                    signals.append(
+                        _signal(
+                            "perfect_target_separation",
+                            Severity.HIGH_RISK,
+                            f"'{name}' alone separates the two target classes almost perfectly.",
+                            f"single_feature_auc={auc:.4f}",
+                            "A single column this predictive is usually derived from the label. Verify before use.",
+                            name,
+                        )
+                    )
+            elif feature_numeric and target_low_card:
+                eta = _correlation_ratio(series, y)
+                if eta >= 0.99:
+                    signals.append(
+                        _signal(
+                            "perfect_target_association",
+                            Severity.HIGH_RISK,
+                            f"'{name}' is almost fully determined by the target class.",
+                            f"correlation_ratio={eta:.4f}",
+                            "Inspect for a column computed from the label.",
+                            name,
+                        )
+                    )
+            elif not feature_numeric and target_numeric and not target_low_card and series.nunique(dropna=True) <= 40:
+                eta = _correlation_ratio(y, series)
+                if eta >= 0.99:
+                    signals.append(
+                        _signal(
+                            "perfect_target_association",
+                            Severity.HIGH_RISK,
+                            f"'{name}' categories almost fully determine the target value.",
+                            f"correlation_ratio={eta:.4f}",
+                            "Inspect for a category derived from the label.",
+                            name,
+                        )
+                    )
+            elif series.nunique(dropna=True) <= 40 and target_low_card:
                 v = _cramers_v(series.astype(str), y.astype(str))
                 if v >= 0.99:
                     signals.append(

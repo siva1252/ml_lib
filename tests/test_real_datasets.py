@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 from mlverdict import DecisionStatus, ModelArtifact, ProblemType, Verdict
@@ -93,17 +92,14 @@ def test_breast_cancer_from_csv_file(real_config, tmp_path: Path):
     assert run.best()["model"]
 
 
-def test_iris_ambiguous_integers_are_undecided(real_config):
-    """species is 0/1/2 — the engine must not silently force multiclass."""
+def test_iris_integer_class_codes_are_multiclass_with_warning(real_config):
+    """species is 0/1/2 (class codes): decided as multiclass, and the call is stated, not silent."""
     frame = iris_frame()
     run = Verdict(config=real_config, enable_hpo=False).fit(frame, "species")
-    assert run.status == DecisionStatus.UNDECIDED
-    assert run.best() is None
-    assert run.artifact() is None
-    assert run.experiments == ()
-    assert run.problem is not None
-    assert run.problem.confidence.value == "low"
-    assert any("problem_type" in w.lower() or "ambiguous" in w.lower() for w in run.problem.warnings)
+    assert run.status == DecisionStatus.DECIDED
+    assert run.problem.problem_type == ProblemType.MULTICLASS_CLASSIFICATION
+    assert any("problem_type='regression'" in w for w in run.problem.warnings)
+    assert run.artifact() is not None
 
 
 def test_iris_multiclass_when_user_confirms(real_config):
@@ -155,7 +151,6 @@ def test_breast_cancer_user_metric_and_explainable_constraint(real_config):
     assert run.metric_plan.user_override
     winner = next(e for e in run.evaluations if e.model_name == run.decision.selected_model)
     assert winner.explainable
-    rejected = [r.reason.lower() for r in run.decision.rejected]
     assert run.decision.reasons
 
 

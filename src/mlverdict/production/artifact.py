@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
 
 from mlverdict.core.exceptions import ArtifactError
@@ -22,18 +23,31 @@ class ModelArtifact:
     decision_record: ModelDecisionRecord | dict[str, Any]
     configuration: dict[str, Any]
 
-    def predict(self, data: pd.DataFrame | list[dict[str, Any]]) -> Any:
-        frame = _align_frame(data, self.schema)
+    def predict(self, data: pd.DataFrame | list[dict[str, Any]], *, strict: bool = True) -> Any:
+        """Predict on new rows.
+
+        ``strict=True`` (default) rejects values in numeric columns that are not numbers
+        (e.g. "abc"), instead of silently treating them as missing and imputing.
+        """
+        frame = _align_frame(data, self.schema, strict=strict)
+        if len(frame) == 0:
+            return np.asarray([])
         try:
             return self.pipeline.predict(frame)
         except Exception as exc:
             raise ArtifactError(f"Prediction failed: {exc}") from exc
 
-    def predict_proba(self, data: pd.DataFrame | list[dict[str, Any]]) -> Any:
-        frame = _align_frame(data, self.schema)
+    def predict_proba(self, data: pd.DataFrame | list[dict[str, Any]], *, strict: bool = True) -> Any:
+        frame = _align_frame(data, self.schema, strict=strict)
         if not hasattr(self.pipeline, "predict_proba"):
             raise ArtifactError("This artifact does not support predict_proba.")
-        return self.pipeline.predict_proba(frame)
+        if len(frame) == 0:
+            n_classes = len(self.classes_) if self.classes_ is not None else 0
+            return np.zeros((0, n_classes))
+        try:
+            return self.pipeline.predict_proba(frame)
+        except Exception as exc:
+            raise ArtifactError(f"Probability prediction failed: {exc}") from exc
 
     def save(self, path: str | Path) -> Path:
         path = Path(path)
@@ -53,8 +67,18 @@ class ModelArtifact:
             raise ArtifactError(f"Failed to save artifact: {exc}") from exc
         return path
 
+    @property
+    def classes_(self) -> Any:
+        """Class labels in ``predict_proba`` column order (classification only)."""
+        return getattr(self.pipeline, "classes_", None)
+
     @classmethod
     def load(cls, path: str | Path) -> "ModelArtifact":
+        """Load a saved artifact.
+
+        Security: joblib/pickle files can run code when loaded. Only load artifacts you created
+        or received from a source you trust.
+        """
         path = Path(path)
         if not path.exists():
             raise ArtifactError(f"Artifact not found: {path}")
@@ -75,13 +99,19 @@ class ModelArtifact:
             raise ArtifactError(f"Artifact is missing required key: {exc}") from exc
 
 
-def _align_frame(data: pd.DataFrame | list[dict[str, Any]], schema: FeatureSchema) -> pd.DataFrame:
+def _align_frame(
+    data: pd.DataFrame | list[dict[str, Any]],
+    schema: FeatureSchema,
+    *,
+    strict: bool = True,
+) -> pd.DataFrame:
     if isinstance(data, list):
         frame = pd.DataFrame(data)
     elif isinstance(data, pd.DataFrame):
         frame = data.copy()
     else:
         raise ArtifactError("Predict input must be a DataFrame or a list of records.")
+    frame.columns = [str(c) for c in frame.columns]  # training stored names as strings
     missing = [c for c in schema.feature_names if c not in frame.columns]
     if missing:
         # allow dropped identifier/constant columns to be absent
@@ -95,4 +125,25 @@ def _align_frame(data: pd.DataFrame | list[dict[str, Any]], schema: FeatureSchem
             raise ArtifactError(f"Missing required features: {missing_required}")
         for col in missing:
             frame[col] = None
-    return frame.reindex(columns=list(schema.feature_names))
+    frame = frame.reindex(columns=list(schema.feature_names))
+    if strict:
+        _check_numeric(frame, schema)
+    return frame
+
+
+def _check_numeric(frame: pd.DataFrame, schema: FeatureSchema) -> None:
+    bad: dict[str, list[Any]] = {}
+    for col in schema.numeric_columns:
+        if col not in frame.columns:
+            continue
+        raw = frame[col]
+        coerced = pd.to_numeric(raw, errors="coerce")
+        invalid = raw.notna() & coerced.isna()
+        if invalid.any():
+            bad[col] = raw[invalid].head(3).tolist()
+    if bad:
+        detail = "; ".join(f"{c}: {v}" for c, v in bad.items())
+        raise ArtifactError(
+            f"Non-numeric values in numeric feature(s): {detail}. "
+            "Fix the input, send null for unknown values, or call predict(..., strict=False)."
+        )

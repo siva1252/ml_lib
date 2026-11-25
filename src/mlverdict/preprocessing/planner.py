@@ -22,11 +22,18 @@ def plan_preprocessing(
     datetime_cols = tuple(c for c in profile.datetime_columns if c not in drop)
 
     high_card = set(dna.high_cardinality_columns)
-    if family in {ModelFamily.LINEAR, ModelFamily.UNSUPERVISED}:
+    if family in {
+        ModelFamily.LINEAR,
+        ModelFamily.UNSUPERVISED,
+        ModelFamily.NEIGHBORS,
+        ModelFamily.KERNEL,
+        ModelFamily.PROBABILISTIC,
+    }:
         encoding = "onehot_or_ordinal"
         scaling = True
         evidence = (
-            "linear/unsupervised family: scale numeric features; one-hot low-card, ordinal high-card",
+            f"{family.value} family: scale numeric features (distance/coefficient based); "
+            "one-hot low-card, ordinal high-card",
         )
     else:
         encoding = "ordinal"

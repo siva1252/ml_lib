@@ -38,7 +38,7 @@ from mlverdict.preprocessing.planner import plan_preprocessing
 from mlverdict.problem.detector import detect_problem
 from mlverdict.problem.intent import FitIntent, resolve_fit_intent
 from mlverdict.production.artifact import ModelArtifact
-from mlverdict.production.readiness import assess_readiness
+from mlverdict.production.readiness import assess_readiness, environment_versions
 from mlverdict.quality.analyzer import analyze_quality
 from mlverdict.quality.leakage import detect_leakage
 from mlverdict.reporting.report import render_report
@@ -82,14 +82,30 @@ class Verdict:
         false_positive_cost: float | None = None,
         false_negative_cost: float | None = None,
         feature_columns: list[str] | None = None,
+        positive_label: Any = None,
     ) -> Run:
+        """Profile, validate, compare models and return a :class:`Run`.
+
+        Pass ``target`` for supervised learning, or ``task`` ("clustering", "anomaly_detection",
+        "dimensionality_reduction") for unsupervised. ``positive_label`` picks the class that
+        precision/recall/F1/PR-AUC measure in binary problems (default: the minority class).
+        """
         seed_everything(self.config.random_state)
+        group_col = None if group_col is None else str(group_col)
+        time_col = None if time_col is None else str(time_col)
+        if feature_columns is not None:
+            feature_columns = [str(c) for c in feature_columns]
         intent = resolve_fit_intent(target, task)
         frame = load_dataset(data)
         if intent.halt_status is not None:
             return _halt_entry(intent)
         if intent.unsupervised_task is not None:
             from mlverdict.unsupervised.engine import fit_unsupervised
+
+            if positive_label is not None:
+                from mlverdict.core.exceptions import ConfigurationError
+
+                raise ConfigurationError("positive_label applies to supervised binary classification only.")
 
             return fit_unsupervised(
                 frame=frame,
@@ -115,7 +131,9 @@ class Verdict:
 
         profile = profile_dataset(train, target, self.config)
         dna = build_dna(profile, self.config, group_col=group_col, time_col=time_col)
-        problem = detect_problem(profile, train[target], user_problem_type=problem_type)
+        problem = detect_problem(
+            profile, train[target], user_problem_type=problem_type, positive_label=positive_label
+        )
         quality = analyze_quality(train, profile, self.config)
         leakage = detect_leakage(train, profile, dna, target, group_col=group_col)
 
@@ -169,7 +187,7 @@ class Verdict:
             false_positive_cost=false_positive_cost,
             false_negative_cost=false_negative_cost,
         )
-        candidates = select_candidates(dna, problem, metric_plan, self.constraints)
+        candidates = select_candidates(dna, problem, metric_plan, self.constraints, self.config)
 
         extra_drop = tuple(
             c
@@ -219,7 +237,9 @@ class Verdict:
                 y_test = test[target]
                 preds = pipeline.predict(X_test)
                 proba = pipeline.predict_proba(X_test) if hasattr(pipeline, "predict_proba") else None
-                test_metrics = compute_metrics(y_test, preds, proba, problem, metric_plan)
+                test_metrics = compute_metrics(
+                    y_test, preds, proba, problem, metric_plan, getattr(pipeline, "classes_", None)
+                )
                 primary = extract_score(test_metrics, metric_plan)
                 raw_primary = test_metrics.get(metric_plan.primary.name, primary)
                 gap = None
@@ -248,6 +268,10 @@ class Verdict:
                     "model": winner.name,
                     "infer_latency_ms": winner_exp.infer_latency_ms,
                     "schema_version": SCHEMA_VERSION,
+                    "learning_mode": "supervised",
+                    "positive_label": problem.positive_label,
+                    "classes": [c.item() if hasattr(c, "item") else c for c in getattr(pipeline, "classes_", [])],
+                    "environment": environment_versions(),
                 },
                 metrics=final_test.metrics if final_test else winner_exp.metrics,
                 decision_record={},  # filled after record is built
@@ -303,7 +327,7 @@ class Verdict:
             decision_record=record,
             final_test=final_test,
             production=production,
-            artifact_obj=artifact if status == DecisionStatus.DECIDED else artifact,
+            artifact_obj=artifact,
             report_text=report_text,
         )
 

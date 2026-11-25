@@ -4,10 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
-from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    ExtraTreesRegressor,
+    HistGradientBoostingClassifier,
+    HistGradientBoostingRegressor,
+    RandomForestClassifier,
+    RandomForestRegressor,
+)
+from sklearn.linear_model import ElasticNet, Lasso, LinearRegression, LogisticRegression, Ridge
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.svm import SVC, SVR
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from mlverdict.core.enums import ProblemType
 
@@ -46,6 +55,28 @@ def build_estimator(
     if cls:
         registry["logistic_regression"] = lambda: LogisticRegression(
             max_iter=400, solver="lbfgs", random_state=random_state, **params
+        )
+        registry["decision_tree"] = lambda: DecisionTreeClassifier(
+            max_depth=params.pop("max_depth", 8),
+            min_samples_leaf=params.pop("min_samples_leaf", 2),
+            random_state=random_state,
+            **params,
+        )
+        registry["knn"] = lambda: KNeighborsClassifier(
+            n_neighbors=params.pop("n_neighbors", 15),
+            weights=params.pop("weights", "distance"),
+            **params,
+        )
+        registry["svm"] = lambda: SVC(
+            C=params.pop("C", 1.0),
+            gamma=params.pop("gamma", "scale"),
+            probability=True,
+            random_state=random_state,
+            **params,
+        )
+        registry["gaussian_nb"] = lambda: GaussianNB(
+            var_smoothing=params.pop("var_smoothing", 1e-9),
+            **params,
         )
         registry["random_forest"] = lambda: RandomForestClassifier(
             n_estimators=params.pop("n_estimators", 80),
@@ -104,6 +135,34 @@ def build_estimator(
             )
     else:
         registry["ridge"] = lambda: Ridge(random_state=random_state, **params)
+        registry["linear_regression"] = lambda: LinearRegression(**params)
+        registry["lasso"] = lambda: Lasso(
+            alpha=params.pop("alpha", 0.01), max_iter=5000, random_state=random_state, **params
+        )
+        registry["elastic_net"] = lambda: ElasticNet(
+            alpha=params.pop("alpha", 0.01),
+            l1_ratio=params.pop("l1_ratio", 0.5),
+            max_iter=5000,
+            random_state=random_state,
+            **params,
+        )
+        registry["decision_tree"] = lambda: DecisionTreeRegressor(
+            max_depth=params.pop("max_depth", 8),
+            min_samples_leaf=params.pop("min_samples_leaf", 2),
+            random_state=random_state,
+            **params,
+        )
+        registry["knn"] = lambda: KNeighborsRegressor(
+            n_neighbors=params.pop("n_neighbors", 15),
+            weights=params.pop("weights", "distance"),
+            **params,
+        )
+        registry["svm"] = lambda: SVR(
+            C=params.pop("C", 1.0),
+            gamma=params.pop("gamma", "scale"),
+            epsilon=params.pop("epsilon", 0.1),
+            **params,
+        )
         registry["random_forest"] = lambda: RandomForestRegressor(
             n_estimators=params.pop("n_estimators", 80),
             max_depth=params.pop("max_depth", None),

@@ -7,7 +7,7 @@ import math
 from mlverdict.core.config import Constraints, VerdictConfig
 from mlverdict.core.enums import ExperimentStatus
 from mlverdict.core.types import EvaluationResult, ExperimentResult
-from mlverdict.evaluation.comparison import minmax
+from mlverdict.evaluation.comparison import noise_aware_scale
 from mlverdict.evaluation.latency import latency_score
 from mlverdict.evaluation.stability import stability_score
 
@@ -43,9 +43,13 @@ def evaluate_experiments(
     successful = [e for e in experiments if e.status == ExperimentStatus.SUCCESS]
     if not successful:
         return ()
-    perf = minmax([e.mean_score for e in successful])
+    perf = noise_aware_scale(
+        [e.mean_score for e in successful],
+        [e.std_score for e in successful],
+        [len([s for s in e.fold_scores if math.isfinite(s)]) for e in successful],
+    )
     results: list[EvaluationResult] = []
-    for exp, perf_n in zip(successful, perf):
+    for exp, perf_n in zip(successful, perf, strict=True):
         stab = stability_score(exp.std_score, exp.mean_score, exp.min_score)
         if exp.generalization_gap is None or not math.isfinite(exp.generalization_gap):
             gen = 0.5

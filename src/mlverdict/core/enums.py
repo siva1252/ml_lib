@@ -50,6 +50,9 @@ class ModelFamily(str, Enum):
     LINEAR = "linear"
     TREE = "tree"
     BOOSTING = "boosting"
+    NEIGHBORS = "neighbors"
+    KERNEL = "kernel"
+    PROBABILISTIC = "probabilistic"
     UNSUPERVISED = "unsupervised"
 
 

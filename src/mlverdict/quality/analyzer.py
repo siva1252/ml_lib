@@ -147,7 +147,7 @@ def analyze_quality(
                         Severity.HIGH_RISK,
                         f"Column '{col.name}' contains infinities.",
                         f"n_inf={n_inf}",
-                        "Replace infinities with NaN and impute inside the training pipeline.",
+                        "Infinities are converted to missing values and imputed inside the training pipeline; check the source.",
                         col.name,
                     )
                 )
