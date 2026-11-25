@@ -1,25 +1,26 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlverdict"
-version = "0.2.1"
+version = "0.3.0"
 description = "Evidence-based decision engine for tabular ML: supervised classification/regression and unsupervised clustering, anomaly detection, and PCA."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Siva Duddukuri" }]
 keywords = ["machine-learning", "automl", "model-selection", "decision-engine", "scikit-learn"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
@@ -46,6 +47,7 @@ Repository = "https://github.com/siva1252/ml_lib"
 Issues = "https://github.com/siva1252/ml_lib/issues"
 Documentation = "https://github.com/siva1252/ml_lib#readme"
 PyPI = "https://pypi.org/project/mlverdict/"
+Changelog = "https://github.com/siva1252/ml_lib/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -61,5 +63,9 @@ filterwarnings = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501", "B008"]

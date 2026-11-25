@@ -6,7 +6,7 @@ from mlverdict.api.verdict import Verdict
 from mlverdict.core.enums import DecisionStatus, ProblemType, Severity, UnsupervisedTask
 from mlverdict.production.artifact import ModelArtifact
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 __all__ = [
     "Verdict",
     "AutoML",
